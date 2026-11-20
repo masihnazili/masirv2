@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="masir_bg">#F2FFFFFF</color>
+    <color name="masir_text">#1C1C1E</color>
+    <color name="masir_muted">#6C6C70</color>
+</resources>
