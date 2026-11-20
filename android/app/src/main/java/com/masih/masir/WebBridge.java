@@ -19,6 +19,8 @@ public class WebBridge {
     /** Web app pushes today's snapshot for the widget. */
     @JavascriptInterface
     public void update(String json) {
+        MasirLog.d(c, "BRIDGE", "update() len=" + (json == null ? -1 : json.length())
+                + " head=" + (json == null ? "null" : json.substring(0, Math.min(160, json.length()))));
         if (json == null) return;
         prefs().edit().putString(MasirWidgetProvider.KEY_SNAP, json).apply();
         MasirWidgetProvider.refreshAll(c);
@@ -29,6 +31,7 @@ public class WebBridge {
     public String takePending() {
         SharedPreferences p = prefs();
         String s = p.getString(MasirWidgetProvider.KEY_PENDING, "[]");
+        MasirLog.d(c, "BRIDGE", "takePending() -> " + s);
         p.edit().remove(MasirWidgetProvider.KEY_PENDING).apply();
         return s;
     }

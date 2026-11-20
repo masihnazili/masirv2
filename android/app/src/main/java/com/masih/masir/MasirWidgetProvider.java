@@ -1,4 +1,4 @@
-package com.masih.masir; // TODO: change to your appId / package name
+package com.masih.masir;
 
 import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
@@ -7,8 +7,11 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Color;
 import android.net.Uri;
-import android.os.Build;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.StrikethroughSpan;
 import android.widget.RemoteViews;
 
 import org.json.JSONArray;
@@ -22,19 +25,31 @@ public class MasirWidgetProvider extends AppWidgetProvider {
     static final String PREFS = "masir_widget";
     static final String KEY_SNAP = "snap";
     static final String KEY_PENDING = "pending";
-    static final String ACTION_TOGGLE = "com.masih.masir.WIDGET_TOGGLE"; // keep in sync with your appId if you like
+    static final String ACTION_TOGGLE = "com.masih.masir.WIDGET_TOGGLE";
     static final String EXTRA_ID = "task_id";
+
+    static final int[] ROW = {R.id.r0, R.id.r1, R.id.r2, R.id.r3, R.id.r4, R.id.r5, R.id.r6, R.id.r7};
+    static final int[] COLOR = {R.id.r0_color, R.id.r1_color, R.id.r2_color, R.id.r3_color, R.id.r4_color, R.id.r5_color, R.id.r6_color, R.id.r7_color};
+    static final int[] TITLE = {R.id.r0_title, R.id.r1_title, R.id.r2_title, R.id.r3_title, R.id.r4_title, R.id.r5_title, R.id.r6_title, R.id.r7_title};
+    static final int[] SUB = {R.id.r0_sub, R.id.r1_sub, R.id.r2_sub, R.id.r3_sub, R.id.r4_sub, R.id.r5_sub, R.id.r6_sub, R.id.r7_sub};
+    static final int[] CHECK = {R.id.r0_check, R.id.r1_check, R.id.r2_check, R.id.r3_check, R.id.r4_check, R.id.r5_check, R.id.r6_check, R.id.r7_check};
 
     @Override
     public void onUpdate(Context c, AppWidgetManager m, int[] ids) {
-        for (int id : ids) m.updateAppWidget(id, build(c, id));
-        m.notifyAppWidgetViewDataChanged(ids, R.id.list);
+        MasirLog.install(c);
+        MasirLog.d(c, "WIDGET", "onUpdate ids=" + java.util.Arrays.toString(ids));
+        for (int id : ids) {
+            try { m.updateAppWidget(id, build(c)); }
+            catch (Throwable t) { MasirLog.e(c, "WIDGET", "updateAppWidget failed", t); }
+        }
     }
 
     @Override
     public void onReceive(Context c, Intent intent) {
         super.onReceive(c, intent);
-        if (ACTION_TOGGLE.equals(intent.getAction())) {
+        MasirLog.install(c);
+        MasirLog.d(c, "WIDGET", "onReceive action=" + (intent == null ? null : intent.getAction()));
+        if (intent != null && ACTION_TOGGLE.equals(intent.getAction())) {
             String id = intent.getStringExtra(EXTRA_ID);
             if (id != null) toggle(c, id);
             refreshAll(c);
@@ -44,9 +59,17 @@ public class MasirWidgetProvider extends AppWidgetProvider {
     static void refreshAll(Context c) {
         AppWidgetManager m = AppWidgetManager.getInstance(c);
         int[] ids = m.getAppWidgetIds(new ComponentName(c, MasirWidgetProvider.class));
-        if (ids == null || ids.length == 0) return;
-        for (int id : ids) m.updateAppWidget(id, build(c, id));
-        m.notifyAppWidgetViewDataChanged(ids, R.id.list);
+        if (ids == null || ids.length == 0) {
+            MasirLog.d(c, "WIDGET", "refreshAll: no widget instances on screen");
+            return;
+        }
+        MasirLog.d(c, "WIDGET", "refreshAll ids=" + java.util.Arrays.toString(ids));
+        try {
+            RemoteViews rv = build(c);
+            for (int id : ids) m.updateAppWidget(id, rv);
+        } catch (Throwable t) {
+            MasirLog.e(c, "WIDGET", "refreshAll failed", t);
+        }
     }
 
     static String todayKey() {
@@ -69,20 +92,45 @@ public class MasirWidgetProvider extends AppWidgetProvider {
         return b.toString();
     }
 
-    static RemoteViews build(Context c, int widgetId) {
+    static PendingIntent openApp(Context c) {
+        Intent launch = c.getPackageManager().getLaunchIntentForPackage(c.getPackageName());
+        if (launch == null) return null;
+        return PendingIntent.getActivity(c, 0, launch,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    static PendingIntent toggleIntent(Context c, String taskId) {
+        Intent i = new Intent(c, MasirWidgetProvider.class)
+                .setAction(ACTION_TOGGLE)
+                .setData(Uri.parse("masir://toggle/" + Uri.encode(taskId)))
+                .putExtra(EXTRA_ID, taskId);
+        return PendingIntent.getBroadcast(c, 0, i,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    static RemoteViews build(Context c) {
+        try {
+            return buildInner(c);
+        } catch (Throwable t) {
+            MasirLog.e(c, "WIDGET", "build() crashed", t);
+            RemoteViews rv = new RemoteViews(c.getPackageName(), R.layout.widget_masir);
+            rv.setTextViewText(R.id.empty, "خطا: " + t.getClass().getSimpleName() + " (Masir Debug را باز کن)");
+            return rv;
+        }
+    }
+
+    static RemoteViews buildInner(Context c) {
         RemoteViews rv = new RemoteViews(c.getPackageName(), R.layout.widget_masir);
         JSONObject s = snap(c);
         boolean fresh = s != null && todayKey().equals(s.optString("date"));
 
-        // header -> opens the app
-        Intent launch = c.getPackageManager().getLaunchIntentForPackage(c.getPackageName());
-        if (launch != null) {
-            PendingIntent open = PendingIntent.getActivity(c, 0, launch,
-                    PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 23 ? PendingIntent.FLAG_IMMUTABLE : 0));
+        PendingIntent open = openApp(c);
+        if (open != null) {
             rv.setOnClickPendingIntent(R.id.header, open);
             rv.setOnClickPendingIntent(R.id.empty, open);
         }
 
+        JSONArray tasks = null;
         if (s == null) {
             rv.setTextViewText(R.id.sub, "");
             rv.setProgressBar(R.id.prog, 1, 0, false);
@@ -96,18 +144,51 @@ public class MasirWidgetProvider extends AppWidgetProvider {
             rv.setTextViewText(R.id.sub, fa(done) + " از " + fa(total) + " · زنجیره " + fa(streak));
             rv.setProgressBar(R.id.prog, Math.max(1, total), done, false);
             rv.setTextViewText(R.id.empty, "امروز کاری نداری");
+            tasks = s.optJSONArray("tasks");
         }
 
-        Intent svc = new Intent(c, MasirWidgetService.class);
-        svc.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId);
-        svc.setData(Uri.parse(svc.toUri(Intent.URI_INTENT_SCHEME)));
-        rv.setRemoteAdapter(R.id.list, svc);
-        rv.setEmptyView(R.id.list, R.id.empty);
+        int count = tasks == null ? 0 : tasks.length();
+        rv.setViewVisibility(R.id.empty, count == 0 ? android.view.View.VISIBLE : android.view.View.GONE);
 
-        Intent tpl = new Intent(c, MasirWidgetProvider.class).setAction(ACTION_TOGGLE);
-        PendingIntent pi = PendingIntent.getBroadcast(c, 1, tpl,
-                PendingIntent.FLAG_UPDATE_CURRENT | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0));
-        rv.setPendingIntentTemplate(R.id.list, pi);
+        for (int i = 0; i < ROW.length; i++) {
+            if (i >= count) {
+                rv.setViewVisibility(ROW[i], android.view.View.GONE);
+                continue;
+            }
+            try {
+                JSONObject t = tasks.getJSONObject(i);
+                boolean fin = t.optBoolean("fin");
+                String type = t.optString("type");
+                int color;
+                try { color = Color.parseColor(t.optString("color", "#007AFF")); }
+                catch (Exception e) { color = Color.parseColor("#007AFF"); }
+
+                String title = t.optString("title");
+                if ("timer".equals(type)) title += "  ·  " + fa(t.optInt("val")) + "/" + fa(t.optInt("target")) + " دقیقه";
+                else if ("count".equals(type)) title += "  ·  " + fa(t.optInt("val")) + "/" + fa(t.optInt("target"));
+                SpannableString sp = new SpannableString(title);
+                if (fin) sp.setSpan(new StrikethroughSpan(), 0, title.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+
+                rv.setViewVisibility(ROW[i], android.view.View.VISIBLE);
+                rv.setTextViewText(TITLE[i], sp);
+                rv.setTextColor(TITLE[i], c.getResources().getColor(fin ? R.color.masir_muted : R.color.masir_text));
+                rv.setTextViewText(SUB[i], t.optString("area"));
+                rv.setInt(COLOR[i], "setColorFilter", color);
+                rv.setImageViewResource(CHECK[i], fin ? R.drawable.ic_circle_on : R.drawable.ic_circle_off);
+                rv.setInt(CHECK[i], "setColorFilter", color);
+
+                if ("check".equals(type)) {
+                    PendingIntent pi = toggleIntent(c, t.optString("id"));
+                    rv.setOnClickPendingIntent(ROW[i], pi);
+                    rv.setOnClickPendingIntent(CHECK[i], pi);
+                } else if (open != null) {
+                    rv.setOnClickPendingIntent(ROW[i], open);
+                    rv.setOnClickPendingIntent(CHECK[i], open);
+                }
+            } catch (Exception e) {
+                rv.setViewVisibility(ROW[i], android.view.View.GONE);
+            }
+        }
         return rv;
     }
 
@@ -132,7 +213,11 @@ public class MasirWidgetProvider extends AppWidgetProvider {
                     break;
                 }
             }
-            if (want < 0) return;
+            if (want < 0) {
+                MasirLog.d(c, "WIDGET", "toggle ignored (task not found / not check): " + taskId);
+                return;
+            }
+            MasirLog.d(c, "WIDGET", "toggle " + taskId + " -> " + want);
             p.edit().putString(KEY_SNAP, s.toString()).apply();
 
             String prefix = date + "|" + taskId + "|";
@@ -144,7 +229,8 @@ public class MasirWidgetProvider extends AppWidgetProvider {
             }
             neu.put(prefix + want);
             p.edit().putString(KEY_PENDING, neu.toString()).apply();
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            MasirLog.e(c, "WIDGET", "toggle failed", e);
         }
     }
 }

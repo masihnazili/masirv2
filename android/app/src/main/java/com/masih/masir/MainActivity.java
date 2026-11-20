@@ -4,6 +4,9 @@ import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.webkit.ConsoleMessage;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
@@ -20,6 +23,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        MasirLog.install(this);
+        MasirLog.d(this, "APP", "MainActivity onCreate");
         web = new WebView(this);
         setContentView(web);
 
@@ -35,7 +40,33 @@ public class MainActivity extends Activity {
         s.setAllowContentAccess(false);
 
         web.addJavascriptInterface(new WebBridge(this), "MasirNative");
+        web.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onConsoleMessage(ConsoleMessage cm) {
+                if (cm.messageLevel() == ConsoleMessage.MessageLevel.ERROR
+                        || cm.messageLevel() == ConsoleMessage.MessageLevel.WARNING) {
+                    MasirLog.d(MainActivity.this, "JS", cm.messageLevel() + ": " + cm.message()
+                            + " (line " + cm.lineNumber() + ")");
+                }
+                return false;
+            }
+        });
         web.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView v, String url) {
+                v.evaluateJavascript("(typeof window.MasirNative)+' | capacitor='+(typeof window.Capacitor)",
+                        new android.webkit.ValueCallback<String>() {
+                            @Override public void onReceiveValue(String r) {
+                                MasirLog.d(MainActivity.this, "APP", "page loaded; bridge check = " + r);
+                            }
+                        });
+            }
+
+            @Override
+            public void onReceivedError(WebView v, WebResourceRequest r, WebResourceError e) {
+                MasirLog.d(MainActivity.this, "WEB", "load error " + e.getErrorCode() + " " + e.getDescription() + " url=" + r.getUrl());
+            }
+
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest r) {
                 return loader.shouldInterceptRequest(r.getUrl());
