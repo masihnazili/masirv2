@@ -33,7 +33,9 @@ public class MasirWidgetService extends RemoteViewsService {
         @Override public int getViewTypeCount() { return 1; }
         @Override public boolean hasStableIds() { return false; }
         @Override public long getItemId(int i) { return i; }
-        @Override public RemoteViews getLoadingView() { return null; }
+        @Override public RemoteViews getLoadingView() {
+            return new RemoteViews(c.getPackageName(), R.layout.widget_item);
+        }
 
         private void load() {
             JSONObject s = MasirWidgetProvider.snap(c);
